@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Adventure Reaction Battle</title>
+  <style>
+    body {
+      background: #2f5d50;
+      font-family: monospace;
+      text-align: center;
+      margin-top: 20px;
+      color: #e6f2ef;
+    }
+
+    .game {
+      width: 560px;
+      margin: auto;
+      border: 4px solid #163d35;
+      padding: 20px;
+      background: #3f7f6d;
+      box-shadow: 0 8px 0 #163d35;
+    }
+
+    canvas {
+      border: 3px solid #163d35;
+      background: #7fbf7f;
+      image-rendering: pixelated;
+      margin-bottom: 10px;
+    }
+
+    .bar { height: 16px; margin: 8px 0; background: #1f4f44; }
+    .fill { height: 100%; background: #ffd54d; width: 100%; }
+    #enemyHP { background: #ff6b6b; }
+
+    #prompt { font-size: 36px; letter-spacing: 6px; margin: 12px 0; }
+
+    button {
+      background: #ffd54d;
+      color: #163d35;
+      border: 2px solid #163d35;
+      padding: 10px 20px;
+      font-family: monospace;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div class="game">
+  <h2>ADVENTURE REACTION BATTLE</h2>
+  <canvas id="battleCanvas" width="520" height="220"></canvas>
+
+  <div>Player HP</div>
+  <div class="bar"><div id="playerHP" class="fill"></div></div>
+
+  <div>Enemy HP</div>
+  <div class="bar"><div id="enemyHP" class="fill"></div></div>
+
+  <div id="prompt">PRESS START</div>
+  <button onclick="startBattle()">START</button>
+  <p id="info"></p>
+</div>
+
+<script>
+const canvas = document.getElementById("battleCanvas");
+const ctx = canvas.getContext("2d");
+
+let playerHP, enemyHP;
+let waiting = false;
+let currentKey = "";
+let startTime = 0;
+
+let heroAttack = 0;
+let enemyAttack = 0;
+let enemyHurt = 0;
+
+let stage = 0; // 0,1,2 goblins → 3 boss
+
+const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+
+/* ---------- SPRITE DRAWER ---------- */
+function drawSprite(sprite, x, y, scale) {
+  for (let r = 0; r < sprite.length; r++) {
+    for (let c = 0; c < sprite[r].length; c++) {
+      const color = sprite[r][c];
+      if (color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x + c*scale, y + r*scale, scale, scale);
+      }
+    }
+  }
+}
+
+/* ---------- HERO ---------- */
+const hero = [
+  [null,null,"#c68642","#c68642",null,null],
+  [null,"#c68642","#f1c27d","#f1c27d","#c68642",null],
+  ["#c68642","#f1c27d","#f1c27d","#f1c27d","#f1c27d","#c68642"],
+  [null,"#2e7d32","#2e7d32","#2e7d32","#2e7d32",null],
+  ["#2e7d32","#2e7d32","#2e7d32","#2e7d32","#2e7d32","#2e7d32"],
+  [null,"#3e2723",null,null,"#3e2723",null],
+  ["#3e2723",null,null,null,null,"#3e2723"]
+];
+
+const sword = [
+  [null,null,"#dddddd",null],
+  [null,"#dddddd","#bbbbbb",null],
+  ["#aaaaaa","#bbbbbb","#888888","#777777"],
+  [null,null,"#3e2723",null]
+];
+
+/* ---------- GOBLIN ---------- */
+const goblin = [
+  [null,"#3a5f0b","#3a5f0b","#3a5f0b",null],
+  ["#3a5f0b","#5e8c1a","#5e8c1a","#5e8c1a","#3a5f0b"],
+  ["#5e8c1a","#ffffff",null,"#ffffff","#5e8c1a"],
+  ["#5e8c1a","#5e8c1a","#5e8c1a","#5e8c1a","#5e8c1a"],
+  [null,"#4e342e","#4e342e","#4e342e",null],
+  ["#4e342e",null,null,null,"#4e342e"]
+];
+
+/* ---------- GOBLIN KING ---------- */
+const goblinKing = [
+  [null,"#c9a227","#c9a227","#c9a227",null],
+  ["#3a5f0b","#5e8c1a","#5e8c1a","#5e8c1a","#3a5f0b"],
+  ["#5e8c1a","#ffffff","#c9a227","#ffffff","#5e8c1a"],
+  ["#5e8c1a","#5e8c1a","#5e8c1a","#5e8c1a","#5e8c1a"],
+  ["#4e342e","#4e342e","#4e342e","#4e342e","#4e342e"],
+  ["#4e342e",null,null,null,"#4e342e"]
+];
+
+/* ---------- STATS BY ENEMY ---------- */
+function getEnemyStats() {
+  if (stage === 0) return { hp: 80, speed: 1400, damage: 10 };
+  if (stage === 1) return { hp: 100, speed: 1100, damage: 14 };
+  if (stage === 2) return { hp: 120, speed: 900, damage: 18 };
+  return { hp: 180, speed: 750, damage: 22 }; // boss
+}
+
+/* ---------- RENDER ---------- */
+function drawBackground() {
+  ctx.fillStyle = "#5f5f5f";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = "#3f3f3f";
+  ctx.fillRect(0,124,canvas.width,96);
+}
+
+function renderScene() {
+  drawBackground();
+
+  let heroX = 120 + (heroAttack > 0 ? 16 : 0);
+  drawSprite(hero, heroX, 90, 6);
+
+  if (heroAttack > 0) {
+    drawSprite(sword, heroX + 38, 95, 6);
+  }
+
+  let enemyX = 350 + (enemyAttack > 0 ? -16 : 0);
+  if (enemyHurt > 0) enemyX += (enemyHurt % 2 ? 4 : -4);
+
+  drawSprite(stage === 3 ? goblinKing : goblin, enemyX, 88, 6);
+}
+
+/* ---------- GAME ---------- */
+function updateBars() {
+  document.getElementById("playerHP").style.width = playerHP + "%";
+  document.getElementById("enemyHP").style.width = enemyHP + "%";
+}
+
+function startBattle() {
+  playerHP = 100;
+  stage = 0;
+  startEnemy();
+}
+
+function startEnemy() {
+  const stats = getEnemyStats();
+  enemyHP = stats.hp;
+  updateBars();
+  document.getElementById("info").textContent =
+    stage === 3 ? "THE GOBLIN KING!" : "Goblin " + (stage + 1);
+  nextTurn();
+}
+
+function nextTurn() {
+  renderScene();
+
+  if (playerHP <= 0) {
+    document.getElementById("prompt").textContent = "GAME OVER";
+    return;
+  }
+
+  if (enemyHP <= 0) {
+    stage++;
+    if (stage > 3) {
+      document.getElementById("prompt").textContent = "YOU WIN!";
+      return;
+    }
+    setTimeout(startEnemy, 800);
+    return;
+  }
+
+  waiting = false;
+  document.getElementById("prompt").textContent = "...";
+
+  const stats = getEnemyStats();
+
+  setTimeout(() => {
+    currentKey = letters[Math.floor(Math.random()*letters.length)];
+    document.getElementById("prompt").textContent = currentKey;
+    startTime = Date.now();
+    waiting = true;
+    setTimeout(enemyStrike, stats.speed);
+  }, Math.random()*1200 + 600);
+}
+
+function enemyStrike() {
+  if (!waiting) return;
+
+  const stats = getEnemyStats();
+  enemyAttack = 6;
+  playerHP -= stats.damage;
+  updateBars();
+  document.getElementById("info").textContent = "Enemy hits!";
+  waiting = false;
+  nextTurn();
+}
+
+document.addEventListener("keydown", e => {
+  if (!waiting) return;
+
+  if (e.key.toUpperCase() === currentKey) {
+    const reaction = Date.now() - startTime;
+    const damage = Math.max(8, 50 - Math.floor(reaction/10));
+
+    heroAttack = 6;
+    enemyHurt = 8;
+
+    enemyHP -= damage;
+    updateBars();
+    document.getElementById("info").textContent = "Strike! " + reaction + "ms";
+    waiting = false;
+    nextTurn();
+  } else {
+    playerHP -= 8;
+    updateBars();
+    document.getElementById("info").textContent = "Wrong key!";
+    waiting = false;
+    nextTurn();
+  }
+});
+
+/* ---------- ANIMATION LOOP ---------- */
+setInterval(() => {
+  if (heroAttack > 0) heroAttack--;
+  if (enemyAttack > 0) enemyAttack--;
+  if (enemyHurt > 0) enemyHurt--;
+  renderScene();
+}, 50);
+
+renderScene();
+</script>
+
+</body>
+</html>
